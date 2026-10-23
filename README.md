@@ -10,7 +10,9 @@
 
 ## 接线
 
-![接线图](wiring.png)
+![原理接线图](wiring.png)
+
+![实物接线图](wiring_physical.png)
 
 | 信号 | STM32 引脚 | 接法 |
 |---|---|---|
