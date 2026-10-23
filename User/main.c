@@ -3,8 +3,10 @@
  *  ------------------------------------------------------------
  *  LED1~LED4 : PA0 ~ PA3，推挽输出，高电平点亮
  *              接法：PAx -- 330Ω -- LED 长脚(+)，LED 短脚(-) -- GND
- *  按键 KEY  : PA4，内部上拉输入
- *              接法：PA4 -- 按键 -- GND（按下为低电平）
+ *  按键 KEY  : PA4
+ *              兼容两种接法：
+ *                a) PA4 -- 按键 -- GND    （按下为低电平）
+ *                b) PA4 -- 按键 -- 3.3V   （按下为高电平）
  *  功能      : 四个 LED 轮流点亮；按一下按键，流动方向反转
  * ============================================================ */
 #include "stm32f10x.h"
@@ -15,7 +17,7 @@
 #define KEY_PIN     GPIO_Pin_4
 
 #define LED_NUM     4
-#define SPEED_MS    200     /* 每颗 LED 停留时间，单位 ms，可自行调整 */
+#define SPEED_MS    200     /* 每颗 LED 停留时间（ms），越大越慢 */
 
 /* 毫秒级延时（基于 SysTick） */
 static void Delay_ms(uint32_t n)
@@ -28,6 +30,42 @@ static void Delay_ms(uint32_t n)
         while ((SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) == 0);
     }
     SysTick->CTRL = 0;
+}
+
+/* 按键检测：兼容“按键接 GND”和“按键接 3.3V”两种接法
+ * 思路：
+ *   1) 先开内部上拉读一次：读到低电平，说明按键另一端接 GND；
+ *   2) 再开内部下拉读一次：读到高电平，说明按键另一端接 3.3V。
+ * 这样不管按键接哪一边，都能检测到。 */
+static uint8_t Key_Is_Pressed(void)
+{
+    GPIO_InitTypeDef gpio;
+    uint8_t pressed = 0;
+
+    gpio.GPIO_Pin   = KEY_PIN;
+    gpio.GPIO_Speed = GPIO_Speed_50MHz;
+
+    /* 上拉读一次：如果被拉低，说明按键接的是 GND */
+    gpio.GPIO_Mode = GPIO_Mode_IPU;
+    GPIO_Init(KEY_PORT, &gpio);
+    if (GPIO_ReadInputDataBit(KEY_PORT, KEY_PIN) == Bit_RESET)
+    {
+        pressed = 1;
+    }
+
+    /* 下拉读一次：如果被拉高，说明按键接的是 3.3V */
+    gpio.GPIO_Mode = GPIO_Mode_IPD;
+    GPIO_Init(KEY_PORT, &gpio);
+    if (GPIO_ReadInputDataBit(KEY_PORT, KEY_PIN) == Bit_SET)
+    {
+        pressed = 1;
+    }
+
+    /* 恢复成上拉，松手检测时继续用 */
+    gpio.GPIO_Mode = GPIO_Mode_IPU;
+    GPIO_Init(KEY_PORT, &gpio);
+
+    return pressed;
 }
 
 int main(void)
@@ -45,7 +83,7 @@ int main(void)
     gpio.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(LED_PORT, &gpio);
 
-    /* 3. 按键引脚配置为上拉输入 */
+    /* 3. 按键引脚先配置为上拉输入 */
     gpio.GPIO_Pin  = KEY_PIN;
     gpio.GPIO_Mode = GPIO_Mode_IPU;
     GPIO_Init(KEY_PORT, &gpio);
@@ -59,15 +97,18 @@ int main(void)
         GPIO_SetBits(LED_PORT, (uint16_t)(1U << pos));
         Delay_ms(SPEED_MS);
 
-        /* 5. 按键检测：按下为低电平，做 20ms 消抖 */
-        if (GPIO_ReadInputDataBit(KEY_PORT, KEY_PIN) == Bit_RESET)
+        /* 5. 按键检测：按下就换向，20ms 消抖 */
+        if (Key_Is_Pressed())
         {
             Delay_ms(20);
-            if (GPIO_ReadInputDataBit(KEY_PORT, KEY_PIN) == Bit_RESET)
+            if (Key_Is_Pressed())
             {
                 dir = -dir;                       /* 换向 */
-                while (GPIO_ReadInputDataBit(KEY_PORT, KEY_PIN) == Bit_RESET);
-            }                                     /* 等待松手，防止连按 */
+                while (Key_Is_Pressed())           /* 等松手，防止连按 */
+                {
+                    Delay_ms(10);
+                }
+            }
         }
 
         /* 6. 计算下一个位置 */
