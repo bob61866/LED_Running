@@ -1,0 +1,9 @@
+Objects/
+Listings/
+DebugConfig/
+*.uvoptx
+*.uvguix.*
+*.bak
+*.dep
+*.scvd
+*.log
